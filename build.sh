@@ -9,14 +9,20 @@ set +a
 VERSION=$(cat version.txt | tr -d '[:space:]')
 IMAGE="${DOCKERHUB_USERNAME}/dockupdater-portainer"
 
-echo "Building ${IMAGE}:${VERSION}..."
-docker build --build-arg VERSION="${VERSION}" -t "${IMAGE}:${VERSION}" -t "${IMAGE}:latest" .
-
 echo "Logging in to Docker Hub..."
 echo "${DOCKERHUB_PAT}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
 
-echo "Pushing ${IMAGE}:${VERSION} and latest..."
-docker push "${IMAGE}:${VERSION}"
-docker push "${IMAGE}:latest"
+# Create builder if needed
+docker buildx inspect multiarch >/dev/null 2>&1 || \
+    docker buildx create --name multiarch --use
+docker buildx use multiarch
 
-echo "Done! Pushed ${IMAGE}:${VERSION}"
+echo "Building and pushing ${IMAGE}:${VERSION} (amd64 + arm64)..."
+docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    --build-arg VERSION="${VERSION}" \
+    -t "${IMAGE}:${VERSION}" \
+    -t "${IMAGE}:latest" \
+    --push .
+
+echo "Done! Pushed ${IMAGE}:${VERSION} (amd64 + arm64)"
