@@ -1,0 +1,6 @@
+services:
+  updater:
+    image: m4ary/dockupdater-portainer:latest
+    container_name: dockupdater-portainer
+    restart: unless-stopped
+    env_file: .env
