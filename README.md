@@ -51,6 +51,8 @@ slack://hook-url
 gotify://host/token
 ```
 
+For Telegram, use `channels=` (not `chats=`) in the query string.
+
 ### Notification Example
 
 ```

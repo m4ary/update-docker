@@ -71,10 +71,24 @@ def notify(message):
     if not SHOUTRRR_URL:
         return
     try:
-        subprocess.run(["shoutrrr", "send", "-u", SHOUTRRR_URL, "-m", message],
-                       capture_output=True, timeout=15)
+        result = subprocess.run(
+            ["shoutrrr", "send", "-u", SHOUTRRR_URL, "-m", message],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            print(f"  [notify error] shoutrrr exited with code {result.returncode}: {err}")
     except Exception as e:
         print(f"  [notify error] {e}")
+
+
+def send_startup_notification():
+    if not SHOUTRRR_URL:
+        return
+    notify("dockupdater-portainer started: notification test")
 
 
 def run_update():
@@ -167,6 +181,8 @@ if __name__ == "__main__":
     print(f"  Env: {ENV_ID}")
     print(f"  Interval: {INTERVAL}s")
     print(f"  Notify: {'yes' if SHOUTRRR_URL else 'no'}")
+    print()
+    send_startup_notification()
     print()
 
     while True:
