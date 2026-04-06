@@ -29,17 +29,17 @@ def api(method, path, body=None, extra_headers=None):
     if extra_headers:
         headers.update(extra_headers)
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
-    with urllib.request.urlopen(req, context=ctx) as res:
+    with urllib.request.urlopen(req, context=ctx, timeout=30) as res:
         raw = res.read()
         return json.loads(raw) if raw else {}
 
 
-def portainer_api(method, path, body=None):
+def portainer_api(method, path, body=None, timeout=30):
     url = f"{PORTAINER}/api{path}"
     data = json.dumps(body).encode() if body else None
     req = urllib.request.Request(url, data=data, method=method,
                                 headers={"X-API-Key": TOKEN, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, context=ctx) as res:
+    with urllib.request.urlopen(req, context=ctx, timeout=timeout) as res:
         raw = res.read()
         return json.loads(raw) if raw else {}
 
@@ -52,7 +52,7 @@ def pull_image(image, registry_id=None):
         auth = base64.b64encode(json.dumps({"registryId": registry_id}).encode()).decode()
         headers["X-Registry-Auth"] = auth
     req = urllib.request.Request(url, data=b"", method="POST", headers=headers)
-    with urllib.request.urlopen(req, context=ctx) as res:
+    with urllib.request.urlopen(req, context=ctx, timeout=300) as res:
         output = res.read().decode()
     for line in output.strip().split("\n"):
         if line.strip():
@@ -108,7 +108,7 @@ def run_update():
     up_to_date = 0
     skipped = 0
 
-    for c in containers:
+    for i, c in enumerate(containers, 1):
         name = c["Names"][0].lstrip("/")
         image = c["Image"]
         old_image_id = c["ImageID"]
@@ -118,13 +118,17 @@ def run_update():
             inspect = api("GET", f"/containers/{c['Id']}/json")
             image = inspect.get("Config", {}).get("Image", "")
             if not image or image.startswith("sha256:"):
+                print(f"  [{i}/{len(containers)}] {name}: skipped (no tag)")
                 skipped += 1
                 continue
 
         # Skip excluded images (e.g. Portainer itself)
         if any(image.lower().startswith(exc) for exc in EXCLUDE_IMAGES):
+            print(f"  [{i}/{len(containers)}] {name}: skipped (excluded)")
             skipped += 1
             continue
+
+        print(f"  [{i}/{len(containers)}] {name}: pulling {image}...")
 
         # Match registry
         registry_id = None
@@ -137,7 +141,8 @@ def run_update():
         # Pull
         try:
             pull_image(image, registry_id)
-        except Exception:
+        except Exception as e:
+            print(f"    pull failed: {e}")
             failed.append(name)
             continue
 
@@ -155,10 +160,12 @@ def run_update():
 
         # Recreate
         try:
+            print(f"    recreating {name}...")
             portainer_api("POST", f"/docker/{ENV_ID}/containers/{c['Id']}/recreate",
-                          {"PullImage": False})
+                          {"PullImage": False}, timeout=120)
             updated.append(f"{name}: {old_ver} -> {new_ver}")
-        except Exception:
+        except Exception as e:
+            print(f"    recreate failed: {e}")
             failed.append(name)
 
     # Build notification
