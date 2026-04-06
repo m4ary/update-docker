@@ -79,9 +79,12 @@ The matching is prefix-based and case-insensitive, so `portainer/portainer-ce` w
 
 1. Fetches all registries from Portainer for authentication
 2. Lists all containers in the environment
-3. Pulls the latest image for each container (using registry credentials when needed)
-4. Compares image IDs — if changed, recreates the container via Portainer
-5. Sends a notification with the update summary
+3. For Docker Hub images (public and private), checks the remote manifest digest against the local digest — **skips the pull entirely if the image is up to date**
+4. For other registries (GHCR, GitLab, etc.), pulls the image and compares image IDs
+5. If a new version is detected, recreates the container via Portainer
+6. Sends a notification with the update summary
+
+The manifest digest check makes scans significantly faster since most images won't have updates on any given check. Docker Hub credentials configured in Portainer are used automatically for private image checks.
 
 ## Private Registries
 

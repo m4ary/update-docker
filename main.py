@@ -60,11 +60,29 @@ def parse_image(image):
     return None, image, tag
 
 
-def get_dockerhub_remote_digest(repo, tag):
-    """Get remote image digest from Docker Hub registry API (works for public images)."""
-    # Get anonymous auth token
+def get_dockerhub_credentials(registries):
+    """Find Docker Hub credentials from Portainer registries."""
+    dockerhub_urls = ["docker.io", "index.docker.io", "registry-1.docker.io", "registry.hub.docker.com"]
+    for r in registries:
+        reg_url = r.get("URL", "").lower().rstrip("/")
+        # Portainer type 6 = DockerHub, or URL matches known Docker Hub domains
+        if r.get("Type") == 6 or any(hub in reg_url for hub in dockerhub_urls):
+            username = r.get("Username", "")
+            password = r.get("Password", "")
+            if username:
+                return username, password
+    return None, None
+
+
+def get_dockerhub_remote_digest(repo, tag, username=None, password=None):
+    """Get remote image digest from Docker Hub registry API.
+    Works for public images (no credentials) and private images (with credentials)."""
+    # Get auth token (anonymous or authenticated)
     token_url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{repo}:pull"
     req = urllib.request.Request(token_url)
+    if username and password:
+        credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
+        req.add_header("Authorization", f"Basic {credentials}")
     with urllib.request.urlopen(req, timeout=10) as res:
         token = json.loads(res.read())["token"]
 
@@ -146,6 +164,9 @@ def run_update():
     for r in registries:
         registry_map[r["URL"].lower()] = r["Id"]
 
+    # Get Docker Hub credentials for manifest checks (if configured in Portainer)
+    dockerhub_user, dockerhub_pass = get_dockerhub_credentials(registries)
+
     # List containers
     containers = api("GET", "/containers/json?all=true")
     print(f"Scanning {len(containers)} containers...")
@@ -185,12 +206,12 @@ def run_update():
                 registry_id = reg_id
                 break
 
-        # For Docker Hub public images, check manifest digest first to avoid unnecessary pulls
+        # For Docker Hub images, check manifest digest first to avoid unnecessary pulls
         registry, repo, tag = parse_image(image)
         needs_pull = True
-        if registry is None and registry_id is None:
+        if registry is None:
             try:
-                remote_digest = get_dockerhub_remote_digest(repo, tag)
+                remote_digest = get_dockerhub_remote_digest(repo, tag, dockerhub_user, dockerhub_pass)
                 local_digest = get_local_repo_digest(image)
                 if remote_digest and local_digest and remote_digest == local_digest:
                     print(f"    up to date (digest match)")
