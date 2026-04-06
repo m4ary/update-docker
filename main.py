@@ -15,6 +15,7 @@ TOKEN = os.environ.get("PORTAINER_TOKEN", "")
 ENV_ID = int(os.environ.get("PORTAINER_ENV_ID", "1"))
 INTERVAL = int(os.environ.get("UPDATE_INTERVAL", "3600"))  # seconds
 SHOUTRRR_URL = os.environ.get("SHOUTRRR_URL", "")  # e.g. telegram://token@telegram?channels=chatid
+EXCLUDE_IMAGES = [s.strip().lower() for s in os.environ.get("EXCLUDE_IMAGES", "portainer/portainer-ce").split(",") if s.strip()]
 
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
@@ -120,6 +121,11 @@ def run_update():
                 skipped += 1
                 continue
 
+        # Skip excluded images (e.g. Portainer itself)
+        if any(image.lower().startswith(exc) for exc in EXCLUDE_IMAGES):
+            skipped += 1
+            continue
+
         # Match registry
         registry_id = None
         image_lower = image.lower()
@@ -180,6 +186,7 @@ if __name__ == "__main__":
     print(f"  URL: {PORTAINER}")
     print(f"  Env: {ENV_ID}")
     print(f"  Interval: {INTERVAL}s")
+    print(f"  Exclude: {', '.join(EXCLUDE_IMAGES) if EXCLUDE_IMAGES else 'none'}")
     print(f"  Notify: {'yes' if SHOUTRRR_URL else 'no'}")
     print()
     send_startup_notification()

@@ -16,6 +16,7 @@ services:
       - PORTAINER_TOKEN=your-api-token
       - PORTAINER_ENV_ID=1
       - UPDATE_INTERVAL=3600
+      - EXCLUDE_IMAGES=portainer/portainer-ce
       - SHOUTRRR_URL=
 ```
 
@@ -31,6 +32,7 @@ docker compose up -d
 | `PORTAINER_TOKEN` | Yes | — | Portainer API token |
 | `PORTAINER_ENV_ID` | No | `1` | Portainer environment ID |
 | `UPDATE_INTERVAL` | No | `3600` | Seconds between scans |
+| `EXCLUDE_IMAGES` | No | `portainer/portainer-ce` | Comma-separated list of image names to skip |
 | `SHOUTRRR_URL` | No | — | Shoutrrr notification URL |
 
 ## Getting a Portainer API Token
@@ -61,6 +63,17 @@ Updates applied:
   redis: a1b2c3d4e5f6 -> f6e5d4c3b2a1
 Scan complete: 12 containers, 2 updated, 9 up to date, 0 failed, 1 skipped
 ```
+
+## Excluding Containers
+
+By default, Portainer's own container (`portainer/portainer-ce`) is excluded to prevent the updater from crashing Portainer by trying to recreate it. You can customize the exclusion list:
+
+```yaml
+environment:
+  - EXCLUDE_IMAGES=portainer/portainer-ce,my-other-image
+```
+
+The matching is prefix-based and case-insensitive, so `portainer/portainer-ce` will match `portainer/portainer-ce:latest`, `portainer/portainer-ce:2.19.0`, etc.
 
 ## How It Works
 
