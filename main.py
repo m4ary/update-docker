@@ -44,6 +44,53 @@ def portainer_api(method, path, body=None, timeout=30):
         return json.loads(raw) if raw else {}
 
 
+def parse_image(image):
+    """Parse image string into (registry, repo, tag). Returns None registry for Docker Hub."""
+    tag = "latest"
+    if ":" in image and not image.rsplit(":", 1)[-1].count("/"):
+        image, tag = image.rsplit(":", 1)
+    # Docker Hub: no dots in first segment (e.g. "nginx", "library/nginx", "user/repo")
+    # Other registries: first segment has dots (e.g. "ghcr.io/user/repo")
+    parts = image.split("/", 1)
+    if "." in parts[0] or ":" in parts[0]:
+        return parts[0], parts[1] if len(parts) > 1 else "", tag
+    # Docker Hub
+    if "/" not in image:
+        return None, f"library/{image}", tag
+    return None, image, tag
+
+
+def get_dockerhub_remote_digest(repo, tag):
+    """Get remote image digest from Docker Hub registry API (works for public images)."""
+    # Get anonymous auth token
+    token_url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{repo}:pull"
+    req = urllib.request.Request(token_url)
+    with urllib.request.urlopen(req, timeout=10) as res:
+        token = json.loads(res.read())["token"]
+
+    # Get manifest digest via HEAD request
+    manifest_url = f"https://registry-1.docker.io/v2/{repo}/manifests/{tag}"
+    req = urllib.request.Request(manifest_url, method="HEAD", headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.docker.distribution.manifest.list.v2+json, "
+                  "application/vnd.docker.distribution.manifest.v2+json, "
+                  "application/vnd.oci.image.index.v1+json"
+    })
+    with urllib.request.urlopen(req, timeout=10) as res:
+        return res.headers.get("Docker-Content-Digest", "")
+
+
+def get_local_repo_digest(image):
+    """Get the local image's repo digest from Portainer/Docker API."""
+    encoded = urllib.parse.quote(image, safe="")
+    data = api("GET", f"/images/{encoded}/json")
+    for d in data.get("RepoDigests", []):
+        # Format: "repo@sha256:abc..."
+        if "@" in d:
+            return d.split("@", 1)[1]
+    return ""
+
+
 def pull_image(image, registry_id=None):
     encoded = urllib.parse.quote(image, safe="")
     url = f"{PORTAINER}/api/endpoints/{ENV_ID}/docker/images/create?fromImage={encoded}"
@@ -128,7 +175,7 @@ def run_update():
             skipped += 1
             continue
 
-        print(f"  [{i}/{len(containers)}] {name}: pulling {image}...")
+        print(f"  [{i}/{len(containers)}] {name}: checking {image}...")
 
         # Match registry
         registry_id = None
@@ -137,6 +184,25 @@ def run_update():
             if image_lower.startswith(reg_url):
                 registry_id = reg_id
                 break
+
+        # For Docker Hub public images, check manifest digest first to avoid unnecessary pulls
+        registry, repo, tag = parse_image(image)
+        needs_pull = True
+        if registry is None and registry_id is None:
+            try:
+                remote_digest = get_dockerhub_remote_digest(repo, tag)
+                local_digest = get_local_repo_digest(image)
+                if remote_digest and local_digest and remote_digest == local_digest:
+                    print(f"    up to date (digest match)")
+                    up_to_date += 1
+                    needs_pull = False
+                elif remote_digest:
+                    print(f"    new version available, pulling...")
+            except Exception:
+                print(f"    manifest check failed, falling back to pull...")
+
+        if not needs_pull:
+            continue
 
         # Pull
         try:
